@@ -25,7 +25,7 @@ clickhouse_key_types = {
     float: "Float64",
     str: "String",
     bool: "UInt8",
-    datetime: "DateTime",
+    datetime: "DateTime64(6, 'UTC')",
 }
 
 
@@ -173,7 +173,7 @@ def rabbitmq_message_put(count: int, queue: str) -> None:
                 "event_type": "event.user.created.api",
                 "origin": "channel",
                 "channel": "bink",
-                "event_date_time": f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                "event_date_time": f"{datetime.now().strftime(settings.datetime_format)}",
                 "external_user_ref": str(randint(100000000, 999999999)),
                 "internal_user_ref": randint(1, 999),
                 "email": "cpressland@bink.com",
