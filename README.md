@@ -1,3 +1,32 @@
+# clickhouse-copybot
+
+## Data Classes
+
+Copybot supports simple or complex schemas and has a basic ORM for converting python types into ClickHouse types. Example:
+
+```python
+@dataclass(frozen=True)
+class HermesMessage(Message):
+    event_type: str
+    origin: str
+    channel: str
+    event_date_time: datetime
+    external_user_ref: str
+    internal_user_ref: int
+    email: str
+```
+
+
+
+
+
+
+
+
+
+
+
+
 ```python
 requests.post(settings.clickhouse_host, params={"query": "DROP DATABASE bink;"}).text
 ```

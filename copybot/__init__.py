@@ -28,7 +28,6 @@ clickhouse_key_types = {
     datetime: "DateTime64(6, 'UTC')",
 }
 
-
 # functions to convert values off the queue into python objects.
 deserializers = {
     datetime: lambda s: datetime.strptime(s, settings.datetime_format),
@@ -72,20 +71,10 @@ class Message:
 
 
 @dataclass(frozen=True)
-class HermesMessage(Message):
-    event_type: str
-    origin: str
-    channel: str
+class Events(Message):
     event_date_time: datetime
-    external_user_ref: str
-    internal_user_ref: int
-    email: str
-
-
-message_routing = {
-    "clickhouse_testing": {"class": HermesMessage, "database": "bink.hermes"},
-    "clickhouse_hermes": {"class": HermesMessage, "database": "bink.hermes"},
-}
+    event_type: str
+    json: str
 
 
 def migrate() -> None:
@@ -99,11 +88,11 @@ def migrate() -> None:
         logging.warning(msg="Creating Bink Database Failed", exc_info=ex)
         exit(1)
     try:
-        hermes_table = HermesMessage.create(table="bink.hermes", order_by="event_date_time")
-        logging.warning(msg="Creating Hermes Table", extra={})
-        requests.post(settings.clickhouse_host, params={"query": hermes_table}).raise_for_status()
+        events_table = Events.create(table="bink.events", order_by="event_date_time")
+        logging.warning(msg="Creating Events Table", extra={})
+        requests.post(settings.clickhouse_host, params={"query": events_table}).raise_for_status()
     except Exception as ex:
-        logging.warning(msg="Failed to Migrate Hermes Tables", exc_info=ex)
+        logging.warning(msg="Creating bink.events Table Failed", exc_info=ex)
         exit(1)
 
 
@@ -123,23 +112,28 @@ def process_message(
     """
     Process Message from RabbitMQ Queue and Push to ClickHouse
     """
-    raw_msg = json.loads(message.decode())
     try:
-        message_type = message_routing[method.routing_key]["class"]
-        destination_database = message_routing[method.routing_key]["database"]
-    except KeyError as ex:
-        raise KeyError(f"Queue {method.routing_key} not found in message_routing dict.") from ex
-    msg = message_type(**raw_msg)
-    sql, msg_params = msg.insert(destination_database)
-    retries = 3
+        raw_msg = json.loads(message.decode())
+        event_date_time = raw_msg.pop("event_date_time")
+        event_type = raw_msg.pop("event_type")
+        event = {
+            "event_date_time": event_date_time,
+            "event_type": event_type,
+            "json": json.dumps(raw_msg),
+        }
+    except KeyError:
+        raise KeyError("Message does not contain the required JSON fields")
+    msg = Events(**event)
+    sql, msg_params = msg.insert(f"{settings.database_name}.{settings.table_name}")
     if settings.debug:
         logging_extras = {
             "sql": sql,
             "params": msg_params,
-            "database": destination_database,
+            "database": f"{settings.database_name}.{settings.table_name}",
         }
     else:
         logging_extras = {}
+    retries = 3
     while True:
         try:
             logging.warning(msg="Processing Message", extra=logging_extras)
@@ -150,6 +144,7 @@ def process_message(
             retries -= 1
             if retries < 1:
                 logging.warning(msg="Dead Letter Event", extra=logging_extras, exc_info=ex)
+                dead_letter(message.decode())
                 ch.basic_ack(delivery_tag=method.delivery_tag)
                 break
             else:
